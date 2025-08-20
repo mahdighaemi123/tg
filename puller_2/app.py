@@ -81,8 +81,6 @@ class APIClient:
         """
         all_users_to_process = []
         page_index = 1
-        total_new_count = 0  # Track new users as we go
-        total_existing_count = 0  # Track existing users as we go
 
         logger.info(
             f"🔄 STEP 1: Starting to fetch users from API...")
@@ -129,34 +127,10 @@ class APIClient:
                     logger.info("📄 Empty page received, stopping")
                     break
 
-                # Separate new and existing users
-                new_items = []
-                existing_items = []
-
-                if invite_db_manager:
-                    for item in items:
-                        user_id = item.get("uid") or item.get("id")
-                        if user_id:
-                            exists = await invite_db_manager.user_exists(user_id)
-                            if not exists:
-                                new_items.append(item)
-                            else:
-                                existing_items.append(item)
-                        else:
-                            new_items.append(item)
-                else:
-                    new_items = items
-
-                # Add all items (new + existing) to be processed
-                all_users_to_process.extend(new_items)
-                all_users_to_process.extend(existing_items)
-
-                # Update running totals
-                total_new_count += len(new_items)
-                total_existing_count += len(existing_items)
+                all_users_to_process = items
 
                 logger.info(
-                    f"📄 Page {page_index}: {len(new_items)} new users, {len(existing_items)} existing users (will update both)")
+                    f"📄 Page {page_index}")
 
                 page_index += 1
                 time.sleep(0.5)
@@ -165,11 +139,8 @@ class APIClient:
             logger.error(f"❌ Failed to fetch users from API: {e}")
             raise
 
-        # Check if target uid is in the results (no extra DB calls needed)
-
         logger.info(
             f"✅ STEP 1 COMPLETED: Found {len(all_users_to_process)} total users "
-            f"({total_new_count} new, {total_existing_count} existing to update). "
         )
 
         return all_users_to_process

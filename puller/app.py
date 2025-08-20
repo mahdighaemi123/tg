@@ -177,7 +177,7 @@ class APIClient:
                     break
 
                 page_index += 1
-                time.sleep(0.2)
+                time.sleep(0.3)
 
         except Exception as e:
             logger.error(f"❌ Failed to fetch users from API: {e}")
