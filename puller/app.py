@@ -81,7 +81,7 @@ class APIClient:
         """
         all_users_to_process = []
         page_index = 1
-        target_uid = 983265275
+        target_uid = "983265275"
         total_new_count = 0  # Track new users as we go
         total_existing_count = 0  # Track existing users as we go
 
