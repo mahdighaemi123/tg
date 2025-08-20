@@ -74,109 +74,136 @@ class APIClient:
             logger.error(f"❌ Failed to get server time: {e}")
             return int(time.time() * 1000)  # Fallback to local time
 
-    async def fetch_all_users_until_no_new(self, page_size: int = 100, invite_db_manager=None) -> list:
-        """
-        STEP 1: Fetch all users from API until no new users are found
-        This is the optimized version that stops when it encounters existing users
-        """
-        all_new_users = []
-        page_index = 1
-        consecutive_existing_count = 0
-        max_consecutive_existing = 2000  # Stop after 2000 consecutive existing users
 
-        logger.info(
-            "🔄 STEP 1: Starting to fetch users from API until no new users found...")
+async def fetch_all_users_until_no_new(self, page_size: int = 100, invite_db_manager=None) -> list:
+    """
+    STEP 1: Fetch all users from API and update existing ones
+    This version processes both new and existing users but stops when uid == 983265275 is found
+    """
+    all_users_to_process = []
+    page_index = 1
+    target_uid = 983265275
+    total_new_count = 0  # Track new users as we go
+    total_existing_count = 0  # Track existing users as we go
 
-        try:
-            while True:
-                logger.info(
-                    f"📄 Fetching page {page_index} (page size: {page_size})")
-                timestamp = self.get_server_time()
+    logger.info(
+        f"🔄 STEP 1: Starting to fetch users from API (will continue until uid {target_uid} is found)...")
 
-                params = {
-                    "pageIndex": page_index,
-                    "pageSize": page_size,
-                    "timestamp": timestamp,
-                }
+    try:
+        while True:
+            logger.info(
+                f"📄 Fetching page {page_index} (page size: {page_size})")
+            timestamp = self.get_server_time()
 
-                query_string = "&".join(
-                    [f"{key}={params[key]}" for key in sorted(params)]
-                )
-                signature = self.generate_signature(query_string)
-                params["signature"] = signature
+            params = {
+                "pageIndex": page_index,
+                "pageSize": page_size,
+                "timestamp": timestamp,
+            }
 
-                headers = {"X-BB-APIKEY": self.api_key}
+            query_string = "&".join(
+                [f"{key}={params[key]}" for key in sorted(params)]
+            )
+            signature = self.generate_signature(query_string)
+            params["signature"] = signature
 
-                response = requests.get(
-                    f"{self.base_url}/api/v1/agent/inviteUserList",
-                    params=params,
-                    headers=headers,
-                    timeout=30
-                )
+            headers = {"X-BB-APIKEY": self.api_key}
 
-                data = response.json()
-                response.raise_for_status()
+            response = requests.get(
+                f"{self.base_url}/api/v1/agent/inviteUserList",
+                params=params,
+                headers=headers,
+                timeout=30
+            )
 
-                logger.info(
-                    f"📄 Page {page_index} response -> Code: {data.get('code')}, Items: {len(data.get('data', {}).get('list', []))}")
+            data = response.json()
+            response.raise_for_status()
 
-                if "data" not in data or not data["data"].get("list"):
-                    logger.info("📄 No more data available from API")
+            logger.info(
+                f"📄 Page {page_index} response -> Code: {data.get('code')}, Items: {len(data.get('data', {}).get('list', []))}")
+
+            if "data" not in data or not data["data"].get("list"):
+                logger.info("📄 No more data available from API")
+                break
+
+            items = data["data"]["list"]
+            if not items:
+                logger.info("📄 Empty page received, stopping")
+                break
+
+            # Check if target uid is in this page
+            target_found = False
+            for item in items:
+                user_id = item.get("uid") or item.get("id")
+                if user_id == target_uid:
+                    target_found = True
+                    logger.info(
+                        f"🎯 TARGET FOUND! uid {target_uid} found on page {page_index}")
                     break
 
-                items = data["data"]["list"]
-                if not items:
-                    logger.info("📄 Empty page received, stopping")
-                    break
+            # Separate new and existing users
+            new_items = []
+            existing_items = []
 
-                # Check which users are new
-                new_items = []
-                existing_count_this_page = 0
-
-                if invite_db_manager:
-                    for item in items:
-                        user_id = item.get("uid") or item.get("id")
-                        if user_id:
-                            exists = await invite_db_manager.user_exists(user_id)
-                            if not exists:
-                                new_items.append(item)
-                                consecutive_existing_count = 0  # Reset counter
-                            else:
-                                existing_count_this_page += 1
-                                consecutive_existing_count += 1
-                        else:
-                            # Add items without ID to be safe
+            if invite_db_manager:
+                for item in items:
+                    user_id = item.get("uid") or item.get("id")
+                    if user_id:
+                        exists = await invite_db_manager.user_exists(user_id)
+                        if not exists:
                             new_items.append(item)
-                else:
-                    new_items = items  # If no DB manager, assume all are new
+                        else:
+                            existing_items.append(item)
+                    else:
+                        # Add items without ID to new_items to be safe
+                        new_items.append(item)
+            else:
+                new_items = items
 
+            # Add all items (new + existing) to be processed
+            all_users_to_process.extend(new_items)
+            all_users_to_process.extend(existing_items)
+
+            # Update running totals
+            total_new_count += len(new_items)
+            total_existing_count += len(existing_items)
+
+            logger.info(
+                f"📄 Page {page_index}: {len(new_items)} new users, {len(existing_items)} existing users (will update both)")
+
+            # If we found the target uid, stop here
+            if target_found:
                 logger.info(
-                    f"📄 Page {page_index}: {len(new_items)} new users, {existing_count_this_page} existing users")
+                    f"🎯 Stopping pagination - target uid {target_uid} has been found!")
+                break
 
-                all_new_users.extend(new_items)
+            page_index += 1
+            time.sleep(0.1)
 
-                # Stop if we've found too many consecutive existing users
-                if consecutive_existing_count >= max_consecutive_existing:
-                    logger.info(
-                        f"🛑 Found {consecutive_existing_count} consecutive existing users. Stopping pagination.")
-                    break
+    except Exception as e:
+        logger.error(f"❌ Failed to fetch users from API: {e}")
+        raise
 
-                # Stop if no new users on this page
-                if len(new_items) == 0:
-                    logger.info(
-                        "🛑 No new users found on this page. Stopping pagination.")
-                    break
+    # Check if target uid is in the results (no extra DB calls needed)
+    target_found_in_results = False
+    for user in all_users_to_process:
+        user_id = user.get("uid") or user.get("id")
+        if user_id == target_uid:
+            target_found_in_results = True
+            logger.info(
+                f"🎯 Confirmed: Target uid {target_uid} is in the results!")
+            break
 
-                page_index += 1
-                time.sleep(0.2)  # Rate limiting
+    if not target_found_in_results:
+        logger.warning(
+            f"⚠️ Target uid {target_uid} was not found in the final results!")
 
-        except Exception as e:
-            logger.error(f"❌ Failed to fetch users from API: {e}")
-            raise
+    logger.info(
+        f"✅ STEP 1 COMPLETED: Found {len(all_users_to_process)} total users "
+        f"({total_new_count} new, {total_existing_count} existing to update). "
+        f"Target uid {target_uid}: {'✅ FOUND' if target_found_in_results else '❌ NOT FOUND'}")
 
-        logger.info(
-            f"✅ STEP 1 COMPLETED: Found {len(all_new_users)} new users to save to database")
-        return all_new_users
+    return all_users_to_process
 
 
 class InviteUsersDatabase:
