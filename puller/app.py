@@ -82,7 +82,7 @@ class APIClient:
         all_new_users = []
         page_index = 1
         consecutive_existing_count = 0
-        max_consecutive_existing = 20  # Stop after 20 consecutive existing users
+        max_consecutive_existing = 2000  # Stop after 2000 consecutive existing users
 
         logger.info(
             "🔄 STEP 1: Starting to fetch users from API until no new users found...")
