@@ -119,6 +119,7 @@ class DatabaseManager:
             self.db = self.client[self.db_name]
             self.collection = self.db[self.collection_name]
             self.setting = self.db.setting
+            self.messages = self.db.messages  # Add messages collection
 
             # Test connection
             await self.client.admin.command('ping')
@@ -169,6 +170,7 @@ class DatabaseManager:
         """Create database indexes"""
         try:
             await self.collection.create_index("chat_id", unique=True)
+            await self.messages.create_index("message_id", unique=True)
             logger.info(f"""✅ Database indexes created""")
         except Exception as e:
             logger.warning(f"""⚠️  Index creation warning: {e}""")
@@ -220,6 +222,72 @@ class DatabaseManager:
             logger.error(f"""❌ Failed to get user data for {chat_id}: {e}""")
             return None
 
+    async def is_message_exist(self, message_id: int) -> bool:
+        """
+        Check if message ID exists in the messages collection
+
+        Args:
+            message_id (int): Telegram message ID
+
+        Returns:
+            bool: True if message exists, False otherwise
+        """
+        try:
+            message_doc = await self.messages.find_one({"message_id": message_id})
+            exists = message_doc is not None
+            logger.info(f"Message {message_id} exists: {exists}")
+            return exists
+        except Exception as e:
+            logger.error(
+                f"Error checking message existence for {message_id}: {e}")
+            return False
+
+    async def save_message(self, message_id: int, chat_id: int, message_data: Optional[Dict[str, Any]] = None) -> bool:
+        """
+        Save message ID to the messages collection
+
+        Args:
+            message_id (int): Telegram message ID
+            chat_id (int): Telegram chat ID
+            message_data (Optional[Dict[str, Any]]): Additional message data
+
+        Returns:
+            bool: True if saved successfully, False otherwise
+        """
+        try:
+            save_data = {
+                "message_id": message_id,
+                "chat_id": chat_id,
+                "processed_at": datetime.utcnow()
+            }
+
+            if message_data:
+                save_data.update(message_data)
+
+            # Use upsert to avoid duplicates
+            await self.messages.update_one(
+                {"message_id": message_id},
+                {"$set": save_data},
+                upsert=True
+            )
+
+            logger.info(
+                f"Message {message_id} from chat {chat_id} saved successfully")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error saving message {message_id}: {e}")
+            return False
+
+    async def get_user_state(self, chat_id: int) -> str:
+        """Get current user state from database"""
+        try:
+            user = await self.collection.find_one({"chat_id": chat_id})
+            return user.get("state", States.START) if user else States.START
+        except Exception as e:
+            logger.error(f"""❌ Failed to get user state for {chat_id}: {e}""")
+            return States.START
+
     async def close(self):
         """Close database connection"""
         if self.client:
@@ -266,9 +334,9 @@ class InputValidator:
 
         clean_uid = uid.strip()
 
-        if not re.match(r'^[a-zA-Z0-9]{6,20}', clean_uid):
+        if not re.match(r'^[0-9]{6,10}', clean_uid):
             raise ValidationError(
-                f"""UID باید شامل 6 تا 9 عدد انگلیسی باشد""")
+                f"""UID باید شامل 6 تا 10 عدد انگلیسی باشد""")
 
         return clean_uid
 
@@ -294,8 +362,18 @@ class TelegramBot:
 
             chat_id = update.effective_chat.id
             message_text = update.message.text if update.message.text else ""
+            message_id = update.message.message_id
 
-            # Get current state
+            if await self.db.is_message_exist(message_id):
+                logger.info(
+                    f"Message {message_id} already processed, skipping...")
+                return
+
+            await self.db.save_message(message_id, chat_id, {
+                "message_text": message_text,
+                "update_id": update.update_id
+            })
+
             current_state = await self.db.get_user_state(chat_id)
 
             logger.info(
@@ -482,7 +560,7 @@ class TelegramBot:
 اگر قبلا با لینک اوتیس ثبت‌نام کرده اید (طبق تصویر) لطفا UID خود را ارسال کنید:
 
 
-در غیر این صورت ابتدا با لینک زیر در صرافی ثبت‌نام کن 
+در غیر این صورت ابتدا با لینک زیر در صرافی ثبت‌نام کن
 🔗 https://www.toobit.com/fa/activity/c/August-deposit?invite_code=Wr5Pbu
 
 آموزش کامل ثبت‌نام و استفاده از صرافی:
@@ -540,10 +618,11 @@ class TelegramBot:
 📱 شماره: {user_data.get('phone')}
 🆔 UID: {user_data.get('uid')}
 
-💰 حالا ۲۰ دلار باید موجودی در صرافی شارژ کنی.
-بعد از شارژ منتظر بمون، طی چند دقیقه برات فایل وبینار ارسال میشه! ✨
+💰 باید حداقل ۲۰ دلار توی صرافی موجودی داشته باشی که بدونیم برای استفاده از فرصت ها جدی هستی❤️
+بعد از شارژ منتظر بمون، طی چند دقیقه برات لینک ارسال میشه! ✨
 
-⏰ وضعیت: در انتظار پرداخت"""
+⏰ وضعیت: در انتظار پرداخت
+"""
 
             await self.bot.send_message(
                 chat_id=chat_id,
@@ -556,7 +635,9 @@ class TelegramBot:
             await self.bot.send_message(
                 chat_id=chat_id,
                 text=f"""❌ {str(e)}
-لطفاً UID معتبر وارد کنید یا /cancel برای لغو ارسال کنید."""
+
+
+لطفاً UID معتبر وارد کنید یا / cancel برای لغو ارسال کنید."""
             )
 
     async def _handle_waiting_payment(self, update: Update):
@@ -569,7 +650,7 @@ class TelegramBot:
 بعد از شارژ، فایل وبینار برای شما ارسال خواهد شد.
 (ممکن است چند دقیقه طول بکشد)
 
-برای شروع مجدد /start را ارسال کنید."""
+برای شروع مجدد / start را ارسال کنید."""
         )
 
     async def _handle_completed_state(self, update: Update):
@@ -577,7 +658,7 @@ class TelegramBot:
         await self.bot.send_message(
             chat_id=update.effective_chat.id,
             text=f"""✅ شما قبلاً فرآیند ثبت نام را تکمیل کرده‌اید.
-برای شروع مجدد /start را ارسال کنید."""
+برای شروع مجدد / start را ارسال کنید."""
         )
 
     async def _handle_cancelled_state(self, update: Update):
@@ -585,7 +666,7 @@ class TelegramBot:
         await self.bot.send_message(
             chat_id=update.effective_chat.id,
             text=f"""❌ آخرین عملیات شما لغو شده بود.
-برای شروع مجدد /start را ارسال کنید."""
+برای شروع مجدد / start را ارسال کنید."""
         )
 
     async def _handle_unknown_state(self, update: Update):
@@ -600,7 +681,7 @@ class TelegramBot:
         await self.bot.send_message(
             chat_id=chat_id,
             text=f"""❌ خطایی در وضعیت رخ داده است.
-برای شروع مجدد /start را ارسال کنید."""
+برای شروع مجدد / start را ارسال کنید."""
         )
 
     async def _send_error_message(self, update: Update):
@@ -610,7 +691,7 @@ class TelegramBot:
                 await self.bot.send_message(
                     chat_id=update.effective_chat.id,
                     text=f"""❌ خطایی رخ داده است. لطفاً دوباره تلاش کنید.
-در صورت تکرار مشکل /start را ارسال کنید."""
+در صورت تکرار مشکل / start را ارسال کنید."""
                 )
         except Exception as e:
             logger.error(f"""❌ Failed to send error message: {e}""")
@@ -703,7 +784,7 @@ async def main():
 
         # Start bot
         logger.info(f"""🚀 Starting bot with manual polling...""")
-        logger.info(f"""📊 Bot Features:""")
+        logger.info(f"""📊 Bot Features: """)
         logger.info(f"""  • Manual update handling with get_updates()""")
         logger.info(f"""  • Database-driven state management""")
         logger.info(f"""  • Input validation""")
