@@ -5,7 +5,7 @@ import asyncio
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 from datetime import datetime
-import pandas as pd
+# import pandas as pd
 import hmac
 import hashlib
 import requests
