@@ -81,12 +81,11 @@ class APIClient:
         """
         all_users_to_process = []
         page_index = 1
-        target_uid = "983265275"
         total_new_count = 0  # Track new users as we go
         total_existing_count = 0  # Track existing users as we go
 
         logger.info(
-            f"🔄 STEP 1: Starting to fetch users from API (will continue until uid {target_uid} is found)...")
+            f"🔄 STEP 1: Starting to fetch users from API...")
 
         try:
             while True:
@@ -130,16 +129,6 @@ class APIClient:
                     logger.info("📄 Empty page received, stopping")
                     break
 
-                # Check if target uid is in this page
-                target_found = False
-                for item in items:
-                    user_id = item.get("uid") or item.get("id")
-                    if user_id == target_uid:
-                        target_found = True
-                        logger.info(
-                            f"🎯 TARGET FOUND! uid {target_uid} found on page {page_index}")
-                        break
-
                 # Separate new and existing users
                 new_items = []
                 existing_items = []
@@ -154,7 +143,6 @@ class APIClient:
                             else:
                                 existing_items.append(item)
                         else:
-                            # Add items without ID to new_items to be safe
                             new_items.append(item)
                 else:
                     new_items = items
@@ -170,37 +158,19 @@ class APIClient:
                 logger.info(
                     f"📄 Page {page_index}: {len(new_items)} new users, {len(existing_items)} existing users (will update both)")
 
-                # If we found the target uid, stop here
-                if target_found:
-                    logger.info(
-                        f"🎯 Stopping pagination - target uid {target_uid} has been found!")
-                    break
-
                 page_index += 1
-                time.sleep(0.2)
+                time.sleep(0.5)
 
         except Exception as e:
             logger.error(f"❌ Failed to fetch users from API: {e}")
             raise
 
         # Check if target uid is in the results (no extra DB calls needed)
-        target_found_in_results = False
-        for user in all_users_to_process:
-            user_id = user.get("uid") or user.get("id")
-            if user_id == target_uid:
-                target_found_in_results = True
-                logger.info(
-                    f"🎯 Confirmed: Target uid {target_uid} is in the results!")
-                break
-
-        if not target_found_in_results:
-            logger.warning(
-                f"⚠️ Target uid {target_uid} was not found in the final results!")
 
         logger.info(
             f"✅ STEP 1 COMPLETED: Found {len(all_users_to_process)} total users "
             f"({total_new_count} new, {total_existing_count} existing to update). "
-            f"Target uid {target_uid}: {'✅ FOUND' if target_found_in_results else '❌ NOT FOUND'}")
+        )
 
         return all_users_to_process
 
