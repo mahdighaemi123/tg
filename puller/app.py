@@ -416,7 +416,7 @@ class PaymentProcessor:
                     logger.info(
                         f"🔍 User {uid} found in invite_users with balance: {balance_volume}")
 
-                    if balance_volume >= 20:
+                    if balance_volume >= 18:
                         # Update state to COMPLETED
                         success = await self.users_db.update_user_state_to_completed(
                             chat_id, balance_volume
