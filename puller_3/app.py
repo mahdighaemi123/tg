@@ -73,7 +73,7 @@ class APIClient:
             logger.error(f"❌ Failed to get server time: {e}")
             return int(time.time() * 1000)  # Fallback to local time
 
-    async def fetch_all_users_until_no_new(self, page_size: int = 100, invite_db_manager=None) -> list:
+    async def fetch_all_users_until_no_new(self, page_size: int = 200, invite_db_manager=None) -> list:
         """
         STEP 1: Fetch all users from API and update existing ones
         This version processes both new and existing users but stops when uid == 983265275 is found
@@ -126,7 +126,7 @@ class APIClient:
                     logger.info("📄 Empty page received, stopping")
                     break
 
-                all_users_to_process = items
+                all_users_to_process.extend(items)
 
                 logger.info(
                     f"📄 Page {page_index}")

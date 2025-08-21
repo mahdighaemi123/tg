@@ -25,16 +25,16 @@ services:
     environment:
       - MONGODB_URL=mongodb://mongo_user:mongo_pass@mongodb:27017/tg?authSource=admin
 
-  puller3:
-    container_name: tg_puller3
-    build: ./puller_3
-    env_file:
-      - ./puller_3/.env
-    restart: always
-    networks:
-      - my_bridge
-    environment:
-      - MONGODB_URL=mongodb://mongo_user:mongo_pass@mongodb:27017/tg?authSource=admin
+  # puller3:
+  #   container_name: tg_puller3
+  #   build: ./puller_3
+  #   env_file:
+  #     - ./puller_3/.env
+  #   restart: always
+  #   networks:
+  #     - my_bridge
+  #   environment:
+  #     - MONGODB_URL=mongodb://mongo_user:mongo_pass@mongodb:27017/tg?authSource=admin
 
 
   bot:

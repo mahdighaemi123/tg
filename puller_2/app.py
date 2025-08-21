@@ -127,7 +127,7 @@ class APIClient:
                     logger.info("📄 Empty page received, stopping")
                     break
 
-                all_users_to_process = items
+                all_users_to_process.extend(items)
 
                 logger.info(
                     f"📄 Page {page_index}")
