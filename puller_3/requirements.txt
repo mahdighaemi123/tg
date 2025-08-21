@@ -1,0 +1,6 @@
+openai
+python-telegram-bot
+python-dotenv
+motor
+pymongo
+requests
